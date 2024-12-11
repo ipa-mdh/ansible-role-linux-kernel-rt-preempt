@@ -1,0 +1,208 @@
+---
+# tasks file for realtime-patch
+# newest ansible version is required
+
+- name: Check if default_config exists
+  stat:
+    path: "{{default_config}}"
+  register: stat_result
+
+- name: Check if kernel exist
+  stat:
+    path: "{{temp_path}}/linux-{{version}}"
+  register: stat_linux
+
+
+- name: Print if default_config does not exist
+  debug:
+    msg: "Configure file {{default_config}} does not exist. Please use other file."
+  
+  when: not stat_result.stat.exists
+
+
+
+- name: Install dependencies to build kernel.
+  become: true
+  apt:
+    pkg:
+      - libelf-dev
+      - libncurses5-dev 
+      - libssl-dev 
+      - kernel-package 
+      - flex 
+      - bison
+      - dwarves
+      - zstd
+      
+  tags: dependencies
+
+
+
+- name: Install packages to test rt-preempt.
+  become: true
+  apt:
+    name: rt-tests
+
+  tags: dependencies
+
+# MRFs additions from here
+- name: Install dependencies
+  become: true
+  apt:
+    pkg:
+      - libncurses-dev
+      - build-essential
+
+  tags: dependencies
+
+- name: Download 
+  block:
+  - name: Download and unarchive
+    
+    ansible.builtin.unarchive:
+      src: "http://cdn.kernel.org/pub/linux/kernel/v{{version_major}}.x/linux-{{version}}.tar.xz"
+      dest: "{{temp_path}}"
+      remote_src: yes
+
+
+  
+  - name: Download 2
+    ansible.builtin.get_url:
+      url: "http://cdn.kernel.org/pub/linux/kernel/projects/rt/{{version_major}}.{{version_second}}/patch-{{version_patch}}.patch.xz"
+      dest: "{{temp_path}}"
+      mode: 0755 #rwx r-x r-x
+
+    register: var_patch
+
+
+  - name: Decompress
+    shell: "xz -dk {{var_patch.dest}}"
+    
+    
+  when: not stat_linux.stat.exists
+
+
+- name: Patch
+  ansible.posix.patch:
+    src: "{{temp_path}}/patch-{{version_patch}}.patch"
+    strip: 1
+    basedir: "{{temp_path}}/linux-{{version}}"
+    remote_src: yes
+
+
+
+#Creates .config file
+- name: Make oldconfig
+  ansible.builtin.command:
+    cmd: make olddefconfig
+    chdir: "{{temp_path}}/linux-{{version}}"
+  tags: config
+
+#Changes Preempt model to realtime
+- name: For the preemption model select Fully Preemptible Kernel
+  ansible.builtin.lineinfile:
+    path: "{{temp_path}}/linux-{{version}}/.config"
+    regexp: "^PREEMPT_RT"
+    line: "CONFIG_PREEMPT_RT=y"
+  tags: config
+
+
+
+- name: Unset other preemtion models
+  ansible.builtin.lineinfile:
+    path: "{{temp_path}}/linux-{{version}}/.config"
+    regexp: "^{{item}}="
+    line: ""
+  loop: "{{kernel_preempt_models}}"
+  tags: config
+
+- name: Disable the SYSTEM_TRUSTED_KEYS from the config
+  ansible.builtin.command:
+    cmd: scripts/config --disable SYSTEM_TRUSTED_KEYS
+    chdir: "{{temp_path}}/linux-{{version}}"
+
+- name: Disable the SYSTEM_REVOCATION_KEYS from the config
+  ansible.builtin.command:
+    cmd: scripts/config --disable SYSTEM_REVOCATION_KEYS
+    chdir: "{{temp_path}}/linux-{{version}}"
+
+#Updates changes in .config file
+- name: Update config
+  ansible.builtin.command:
+    cmd: make olddefconfig
+    chdir: "{{temp_path}}/linux-{{version}}"
+  tags: config
+
+#build takes about 50min, but works 
+- name: Build Kernel
+  ansible.builtin.command:
+    cmd: "make -j {{ansible_facts['processor_vcpus']}} deb-pkg"
+    chdir: "{{temp_path}}/linux-{{version}}"
+  tags: build
+
+    
+- name: Install headers
+  become: true
+  block:
+    - name: Install header
+      apt:
+        deb: "{{temp_path}}/linux-headers-{{version_patch}}_{{version_patch}}-1_amd64.deb"
+
+    - name: Install image
+      apt:
+        deb: "{{temp_path}}/linux-image-{{version_patch}}_{{version_patch}}-1_amd64.deb"
+
+  tags: headers
+
+- name: Create realtime usergroup 
+  become: true
+  ansible.builtin.group: 
+    name: realtime
+    state: present
+  tags: user
+  
+- name: Add user to usergroup
+  become: true
+  ansible.builtin.user:
+    name: "{{ansible_facts['env']['USER']}}"
+    groups: realtime
+    append: yes
+  tags: user
+
+- name: Check for Kernelname
+  ansible.builtin.lineinfile:
+    path: /boot/grub/grub.cfg
+    regexp: "{{version_patch}}"
+    state: absent
+  check_mode: yes
+  changed_when: false
+  register: stat_kernel
+  tags: test
+
+- name: Print if kernelname does not exist
+  debug:
+    msg: "Kernelname does not exists"
+  when: not stat_kernel.found
+  tags: test
+
+
+- name: Set default kernel
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: "^GRUB_DEFAULT="
+    line: 'GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux {{version_patch}}"'
+
+- name: Update grub
+  become: true
+  shell: "update-grub"
+
+- name: Make sure /etc/security/limits.conf contains all values needed
+  become: true
+  ansible.builtin.lineinfile:
+    path: "/etc/security/limits.conf"
+    regex: "^{{item}}"
+    insertafter: "<domain>      <type>  <item>         <value>\n"
+    line: "{{item}}"
+  loop: "{{limits_conf_values}}"
+  tags: conf

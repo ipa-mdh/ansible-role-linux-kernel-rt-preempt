@@ -1,0 +1,27 @@
+---
+# defaults file for realtime-patch
+temp_path: /tmp
+version_major: 5
+version_second: 16
+version_minor: 2
+version: "{{version_major}}.{{version_second}}.{{version_minor}}"
+version_patch: "{{version}}-rt19"
+
+default_config: "/boot/config-{{ansible_facts['kernel']}}"
+#takes kernel release == $(uname -r)
+kernel_preempt_models:
+  - CONFIG_PREEMPT_NONE
+  - CONFIG_PREEMPT_VOLUNTARY
+  - CONFIG_PREEMPT
+
+limits_conf_values:
+  - "@realtime soft rtprio 99"
+  - "@realtime soft priority 99"
+  - "@realtime soft memlock 102400"
+  - "@realtime hard rtprio 99"
+  - "@realtime hard priority 99"
+  - "@realtime hard memlock 102400"
+
+
+
+  
