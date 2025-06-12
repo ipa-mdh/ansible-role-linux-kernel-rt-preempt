@@ -1,6 +1,6 @@
 ---
 # defaults file for realtime-patch
-temp_path: /tmp
+working_dir: /tmp
 version_major: 5
 version_minor: 16
 version_patch: 2

@@ -7,9 +7,14 @@
     path: "{{default_config}}"
   register: stat_result
 
+- name: create working directory
+  ansible.builtin.file:
+    path: "{{working_dir}}
+    state: directory
+
 - name: Check if kernel exist
   stat:
-    path: "{{temp_path}}/linux-{{version}}"
+    path: "{{working_dir}}/linux-{{version}}"
   register: stat_linux
 
 - name: Print if default_config does not exist
@@ -43,7 +48,7 @@
       - libncurses-dev
       - build-essential
   tags: dependencies
-  
+
 - name: Install dependencies to build kernel.
   become: true
   apt:
@@ -58,13 +63,13 @@
   - name: Download and unarchive
     ansible.builtin.unarchive:
       src: "http://cdn.kernel.org/pub/linux/kernel/v{{version_major}}.x/linux-{{version}}.tar.xz"
-      dest: "{{temp_path}}"
+      dest: "{{working_dir}}"
       remote_src: yes
 
   - name: Download 2
     ansible.builtin.get_url:
       url: "http://cdn.kernel.org/pub/linux/kernel/projects/rt/{{version_major}}.{{version_minor}}/patch-{{version_with_rt}}.patch.xz"
-      dest: "{{temp_path}}"
+      dest: "{{working_dir}}"
       mode: 0755 #rwx r-x r-x
     register: var_patch
 
@@ -75,79 +80,79 @@
 
 - name: Patch
   ansible.posix.patch:
-    src: "{{temp_path}}/patch-{{version_with_rt}}.patch"
+    src: "{{working_dir}}/patch-{{version_with_rt}}.patch"
     strip: 1
-    basedir: "{{temp_path}}/linux-{{version}}"
+    basedir: "{{working_dir}}/linux-{{version}}"
     remote_src: yes
 
 #Creates .config file
 - name: Make oldconfig
   ansible.builtin.command:
     cmd: make olddefconfig
-    chdir: "{{temp_path}}/linux-{{version}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
   tags: config
 
 - name: Update config (disable)
   ansible.builtin.command:
     cmd: scripts/config --disable {{item}}
-    chdir: "{{temp_path}}/linux-{{version}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
   loop: "{{scripts_config_disable}}"
 
 - name: Update config (enable)
   ansible.builtin.command:
     cmd: scripts/config --enable {{item}}
-    chdir: "{{temp_path}}/linux-{{version}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
   loop: "{{scripts_config_enable}}"
 
 - name: Update config (set-str)
   ansible.builtin.command:
     cmd: scripts/config --set-str {{item.key}} {{item.value}}
-    chdir: "{{temp_path}}/linux-{{version}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
   loop: "{{scripts_config_set_string}}"
 
 #Updates changes in .config file
 - name: Update config
   ansible.builtin.command:
     cmd: make olddefconfig
-    chdir: "{{temp_path}}/linux-{{version}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
   tags: config
 
 # fix: build error: creating source package requires git repository
 - name: git repo (init)
   ansible.builtin.command:
     cmd: git init
-    chdir: "{{temp_path}}/linux-{{version}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
 
 - name: git check for untracked or modified files
   command:
     cmd: git status --porcelain
-    chdir: "{{temp_path}}/linux-{{version}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
   register: git_status
 
 - name: git stage all changes if there are any
   ansible.builtin.command:
     cmd: git add .
-    chdir: "{{temp_path}}/linux-{{version}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
   when: git_status.stdout != ""
 
 - name: git commit changes if there are any staged files
   ansible.builtin.command:
     cmd: git commit -m "automated initial commit by Ansible"
-    chdir: "{{temp_path}}/linux-{{version}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
   when: git_status.stdout != ""
 
 #build takes about 50min, but works 
 - name: Build Kernel (version <6.3)
   ansible.builtin.command:
     cmd: "make -j {{ansible_facts['processor_vcpus']}} deb-pkg"
-    chdir: "{{temp_path}}/linux-{{version}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
   when: version is version_compare('6.3', '<')
   tags: build
 
 - name: Build Kernel (version >=6.3)
   ansible.builtin.command:
     cmd: "make -j {{ansible_facts['processor_vcpus']}} deb-pkg"
-    chdir: "{{temp_path}}/linux-{{version}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
   when: version is version_compare('6.3', '>=')
   tags: build
 
@@ -155,7 +160,7 @@
   become: true
   ansible.builtin.command:
     cmd: dpkg -i *.deb
-    chdir: "{{temp_path}}"
+    chdir: "{{working_dir}}"
 
 - name: Create realtime usergroup 
   become: true
