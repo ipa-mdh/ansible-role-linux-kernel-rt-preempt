@@ -8,9 +8,11 @@
   register: stat_result
 
 - name: create working directory
+  become: true
   ansible.builtin.file:
     path: "{{working_dir}}"
     state: directory
+    mode: "1777"
 
 - name: Check if kernel exist
   stat:
@@ -193,16 +195,16 @@
 #   when: not stat_kernel.found
 #   tags: test
 
-# - name: Set default kernel
-#   become: true
-#   ansible.builtin.lineinfile:
-#     path: /etc/default/grub
-#     regexp: "^GRUB_DEFAULT="
-#     line: 'GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux {{version_with_rt}}"'
+- name: Set default kernel
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: "^GRUB_DEFAULT="
+    line: 'GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux {{version_with_rt}}"'
 
-# - name: Update grub
-#   become: true
-#   shell: "update-grub"
+- name: Update grub
+  become: true
+  shell: "update-grub"
 
 - name: Make sure /etc/security/limits.conf contains all values needed
   become: true
