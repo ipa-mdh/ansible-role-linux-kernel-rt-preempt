@@ -26,13 +26,9 @@
   include_vars: vars_ubuntu_22_04.yml
   when: ansible_distribution_version == '22.04'
 
-- name: Install dependencies to build kernel.
-  become: true
-  apt:
-    name: "{{ packages_to_install }}"
-    state: present
-    update_cache: true
-  tags: dependencies
+- name: Include Ubuntu 24.04 vars
+  include_vars: vars_ubuntu_24_04.yml
+  when: ansible_distribution_version == '24.04'
 
 - name: Install packages to test rt-preempt.
   become: true
@@ -47,6 +43,15 @@
       - libncurses-dev
       - build-essential
   tags: dependencies
+  
+- name: Install dependencies to build kernel.
+  become: true
+  apt:
+    name: "{{ packages_to_install }}"
+    state: present
+    update_cache: true
+  tags: dependencies
+
 
 - name: Download 
   block:
@@ -183,16 +188,16 @@
 #   when: not stat_kernel.found
 #   tags: test
 
-- name: Set default kernel
-  become: true
-  ansible.builtin.lineinfile:
-    path: /etc/default/grub
-    regexp: "^GRUB_DEFAULT="
-    line: 'GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux {{version_with_rt}}"'
+# - name: Set default kernel
+#   become: true
+#   ansible.builtin.lineinfile:
+#     path: /etc/default/grub
+#     regexp: "^GRUB_DEFAULT="
+#     line: 'GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux {{version_with_rt}}"'
 
-- name: Update grub
-  become: true
-  shell: "update-grub"
+# - name: Update grub
+#   become: true
+#   shell: "update-grub"
 
 - name: Make sure /etc/security/limits.conf contains all values needed
   become: true
