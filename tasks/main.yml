@@ -9,7 +9,7 @@
 
 - name: create working directory
   ansible.builtin.file:
-    path: "{{working_dir}}
+    path: "{{working_dir}}"
     state: directory
 
 - name: Check if kernel exist
