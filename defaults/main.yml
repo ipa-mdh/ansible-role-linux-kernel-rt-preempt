@@ -2,17 +2,28 @@
 # defaults file for realtime-patch
 temp_path: /tmp
 version_major: 5
-version_second: 16
-version_minor: 2
-version: "{{version_major}}.{{version_second}}.{{version_minor}}"
-version_patch: "{{version}}-rt19"
+version_minor: 16
+version_patch: 2
+version_rt: 19
+version: "{{version_major}}.{{version_minor}}.{{version_patch}}"
+version_with_rt: "{{version}}-rt{{version_rt}}"
 
 default_config: "/boot/config-{{ansible_facts['kernel']}}"
-#takes kernel release == $(uname -r)
-kernel_preempt_models:
+
+scripts_config_disable:
   - CONFIG_PREEMPT_NONE
   - CONFIG_PREEMPT_VOLUNTARY
   - CONFIG_PREEMPT
+  - SYSTEM_TRUSTED_KEYS
+  - SYSTEM_REVOCATION_KEYS
+  - SYSTEM_REVOCATION_LIST
+
+scripts_config_enable:
+  - CONFIG_PREEMPT_RT
+
+scripts_config_set_string:
+  - key: SYSTEM_TRUSTED_KEYS
+    value: "\"\""
 
 limits_conf_values:
   - "@realtime soft rtprio 99"
@@ -21,7 +32,3 @@ limits_conf_values:
   - "@realtime hard rtprio 99"
   - "@realtime hard priority 99"
   - "@realtime hard memlock 102400"
-
-
-
-  
