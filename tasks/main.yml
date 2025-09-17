@@ -7,11 +7,17 @@
     path: "{{default_config}}"
   register: stat_result
 
+- name: create working directory
+  become: true
+  ansible.builtin.file:
+    path: "{{working_dir}}"
+    state: directory
+    mode: "1777"
+
 - name: Check if kernel exist
   stat:
-    path: "{{temp_path}}/linux-{{version}}"
+    path: "{{working_dir}}/linux-{{version}}"
   register: stat_linux
-
 
 - name: Print if default_config does not exist
   debug:
@@ -19,140 +25,144 @@
   
   when: not stat_result.stat.exists
 
+- name: Include Ubuntu 20.04 vars
+  include_vars: vars_ubuntu_20_04.yml
+  when: ansible_distribution_version == '20.04'
 
+- name: Include Ubuntu 22.04 vars
+  include_vars: vars_ubuntu_22_04.yml
+  when: ansible_distribution_version == '22.04'
 
-- name: Install dependencies to build kernel.
-  become: true
-  apt:
-    pkg:
-      - libelf-dev
-      - libncurses5-dev 
-      - libssl-dev 
-      - kernel-package 
-      - flex 
-      - bison
-      - dwarves
-      - zstd
-      
-  tags: dependencies
-
-
+- name: Include Ubuntu 24.04 vars
+  include_vars: vars_ubuntu_24_04.yml
+  when: ansible_distribution_version == '24.04'
 
 - name: Install packages to test rt-preempt.
   become: true
   apt:
     name: rt-tests
-
   tags: dependencies
 
-# MRFs additions from here
 - name: Install dependencies
   become: true
   apt:
     pkg:
       - libncurses-dev
       - build-essential
-
   tags: dependencies
+
+- name: Install dependencies to build kernel.
+  become: true
+  apt:
+    name: "{{ packages_to_install }}"
+    state: present
+    update_cache: true
+  tags: dependencies
+
 
 - name: Download 
   block:
   - name: Download and unarchive
-    
     ansible.builtin.unarchive:
       src: "http://cdn.kernel.org/pub/linux/kernel/v{{version_major}}.x/linux-{{version}}.tar.xz"
-      dest: "{{temp_path}}"
+      dest: "{{working_dir}}"
       remote_src: yes
 
-
-  
   - name: Download 2
     ansible.builtin.get_url:
-      url: "http://cdn.kernel.org/pub/linux/kernel/projects/rt/{{version_major}}.{{version_second}}/patch-{{version_patch}}.patch.xz"
-      dest: "{{temp_path}}"
+      url: "http://cdn.kernel.org/pub/linux/kernel/projects/rt/{{version_major}}.{{version_minor}}/patch-{{version_with_rt}}.patch.xz"
+      dest: "{{working_dir}}"
       mode: 0755 #rwx r-x r-x
-
     register: var_patch
-
 
   - name: Decompress
     shell: "xz -dk {{var_patch.dest}}"
-    
-    
-  when: not stat_linux.stat.exists
 
+  when: not stat_linux.stat.exists
 
 - name: Patch
   ansible.posix.patch:
-    src: "{{temp_path}}/patch-{{version_patch}}.patch"
+    src: "{{working_dir}}/patch-{{version_with_rt}}.patch"
     strip: 1
-    basedir: "{{temp_path}}/linux-{{version}}"
+    basedir: "{{working_dir}}/linux-{{version}}"
     remote_src: yes
-
-
 
 #Creates .config file
 - name: Make oldconfig
   ansible.builtin.command:
     cmd: make olddefconfig
-    chdir: "{{temp_path}}/linux-{{version}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
   tags: config
 
-#Changes Preempt model to realtime
-- name: For the preemption model select Fully Preemptible Kernel
-  ansible.builtin.lineinfile:
-    path: "{{temp_path}}/linux-{{version}}/.config"
-    regexp: "^PREEMPT_RT"
-    line: "CONFIG_PREEMPT_RT=y"
-  tags: config
-
-
-
-- name: Unset other preemtion models
-  ansible.builtin.lineinfile:
-    path: "{{temp_path}}/linux-{{version}}/.config"
-    regexp: "^{{item}}="
-    line: ""
-  loop: "{{kernel_preempt_models}}"
-  tags: config
-
-- name: Disable the SYSTEM_TRUSTED_KEYS from the config
+- name: Update config (disable)
   ansible.builtin.command:
-    cmd: scripts/config --disable SYSTEM_TRUSTED_KEYS
-    chdir: "{{temp_path}}/linux-{{version}}"
+    cmd: scripts/config --disable {{item}}
+    chdir: "{{working_dir}}/linux-{{version}}"
+  loop: "{{scripts_config_disable}}"
 
-- name: Disable the SYSTEM_REVOCATION_KEYS from the config
+- name: Update config (enable)
   ansible.builtin.command:
-    cmd: scripts/config --disable SYSTEM_REVOCATION_KEYS
-    chdir: "{{temp_path}}/linux-{{version}}"
+    cmd: scripts/config --enable {{item}}
+    chdir: "{{working_dir}}/linux-{{version}}"
+  loop: "{{scripts_config_enable}}"
+
+- name: Update config (set-str)
+  ansible.builtin.command:
+    cmd: scripts/config --set-str {{item.key}} {{item.value}}
+    chdir: "{{working_dir}}/linux-{{version}}"
+  loop: "{{scripts_config_set_string}}"
 
 #Updates changes in .config file
 - name: Update config
   ansible.builtin.command:
     cmd: make olddefconfig
-    chdir: "{{temp_path}}/linux-{{version}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
   tags: config
 
+# fix: build error: creating source package requires git repository
+- name: git repo (init)
+  ansible.builtin.command:
+    cmd: git init
+    chdir: "{{working_dir}}/linux-{{version}}"
+
+- name: git check for untracked or modified files
+  command:
+    cmd: git status --porcelain
+    chdir: "{{working_dir}}/linux-{{version}}"
+  register: git_status
+
+- name: git stage all changes if there are any
+  ansible.builtin.command:
+    cmd: git add .
+    chdir: "{{working_dir}}/linux-{{version}}"
+  when: git_status.stdout != ""
+
+- name: git commit changes if there are any staged files
+  ansible.builtin.command:
+    cmd: git commit -m "automated initial commit by Ansible"
+    chdir: "{{working_dir}}/linux-{{version}}"
+  when: git_status.stdout != ""
+
 #build takes about 50min, but works 
-- name: Build Kernel
+- name: Build Kernel (version <6.3)
   ansible.builtin.command:
     cmd: "make -j {{ansible_facts['processor_vcpus']}} deb-pkg"
-    chdir: "{{temp_path}}/linux-{{version}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
+  when: version is version_compare('6.3', '<')
   tags: build
 
-    
-- name: Install headers
+- name: Build Kernel (version >=6.3)
+  ansible.builtin.command:
+    cmd: "make -j {{ansible_facts['processor_vcpus']}} deb-pkg"
+    chdir: "{{working_dir}}/linux-{{version}}"
+  when: version is version_compare('6.3', '>=')
+  tags: build
+
+- name: install realtime kernel
   become: true
-  block:
-    - name: Install header
-      apt:
-        deb: "{{temp_path}}/linux-headers-{{version_patch}}_{{version_patch}}-1_amd64.deb"
-
-    - name: Install image
-      apt:
-        deb: "{{temp_path}}/linux-image-{{version_patch}}_{{version_patch}}-1_amd64.deb"
-
-  tags: headers
+  ansible.builtin.command:
+    cmd: dpkg -i *.deb
+    chdir: "{{working_dir}}"
 
 - name: Create realtime usergroup 
   become: true
@@ -169,29 +179,28 @@
     append: yes
   tags: user
 
-- name: Check for Kernelname
-  ansible.builtin.lineinfile:
-    path: /boot/grub/grub.cfg
-    regexp: "{{version_patch}}"
-    state: absent
-  check_mode: yes
-  changed_when: false
-  register: stat_kernel
-  tags: test
+# - name: Check for Kernelname
+#   ansible.builtin.lineinfile:
+#     path: /boot/grub/grub.cfg
+#     regexp: "{{version_with_rt}}"
+#     state: absent
+#   check_mode: yes
+#   changed_when: false
+#   register: stat_kernel
+#   tags: test
 
-- name: Print if kernelname does not exist
-  debug:
-    msg: "Kernelname does not exists"
-  when: not stat_kernel.found
-  tags: test
-
+# - name: Print if kernelname does not exist
+#   debug:
+#     msg: "Kernelname does not exists"
+#   when: not stat_kernel.found
+#   tags: test
 
 - name: Set default kernel
   become: true
   ansible.builtin.lineinfile:
     path: /etc/default/grub
     regexp: "^GRUB_DEFAULT="
-    line: 'GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux {{version_patch}}"'
+    line: 'GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux {{version_with_rt}}"'
 
 - name: Update grub
   become: true

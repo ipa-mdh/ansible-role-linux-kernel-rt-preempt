@@ -1,38 +1,60 @@
 Role Name
 =========
 
-A brief description of the role goes here.
+The realtime-patch Ansible role automates the process of downloading, patching, configuring, building, and installing a PREEMPT-RT (real-time) Linux kernel on Ubuntu systems. It supports multiple Ubuntu LTS versions and ensures required dependencies, user groups, and system configurations are in place for real-time kernel operation.
+
 
 Requirements
 ------------
 
-Any pre-requisites that may not be covered by Ansible itself or the role should be mentioned here. For instance, if the role uses the EC2 module, it may be a good idea to mention in this section that the boto package is required.
+- **Ansible Version**: The newest Ansible version is required (minimum 2.11 recommended for argument validation and modern features).
+- **Supported OS**: Ubuntu 20.04, 22.04, and 24.04.
+- **Privileges**: Root privileges are required for package installation and system configuration.
+- **Internet Access**: Required for downloading kernel sources and patches.
+
 
 Role Variables
 --------------
 
-A description of the settable variables for this role should go here, including any variables that are in defaults/main.yml, vars/main.yml, and any variables that can/should be set via parameters to the role. Any variables that are read from other roles and/or the global scope (ie. hostvars, group vars, etc.) should be mentioned here as well.
+| Variable | Required | Default | Description |
+| :-- | :-- | :-- | :-- |
+| `working_dir` | yes | `/tmp`  | Directory for downloading and building the kernel. |
+| `version_major` | yes | 5 | Major version |
+| `version_minor` | yes | 16 | Minor version |
+| `version_patch` | yes | 2 | Patch version |
+| `version_rt` | yes | 19 | Kernel version with RT suffix (results in e.g. `5.16.2-rt19`). |
 
 Dependencies
 ------------
 
-A list of other roles hosted on Galaxy should go here, plus any details in regards to parameters that may need to be set for other roles, or variables that are used from other roles.
+None (all dependencies are handled by the role itself).
 
 Example Playbook
 ----------------
 
-Including an example of how to use your role (for instance, with variables passed in as parameters) is always nice for users too:
+```yaml
+- name: Main Playbook
 
-    - hosts: servers
-      roles:
-         - { role: username.rolename, x: 42 }
+  hosts: localhost
+  connection: local
+
+  roles:
+    - role: realtime-patch
+      vars:
+        version_major: 6
+        version_minor: 8
+        version_patch: 2
+        version_rt: 11
+        working_dir: /opt/robot_mindset/kernel
+```
+
+## Notes
+
+- The kernel build process is CPU-intensive and may take up to an hour.
+- Ensure your `default_config` is suitable for your hardware and use case.
 
 License
 -------
 
-BSD
+MIT
 
-Author Information
-------------------
-
-An optional section for the role authors to include contact information, or a website (HTML is not allowed).
