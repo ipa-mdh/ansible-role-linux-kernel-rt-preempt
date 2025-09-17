@@ -168,11 +168,20 @@
   when: version is version_compare('6.3', '>=')
   tags: build
 
-- name: install realtime kernel
+- name: Find .deb files
+  find:
+    paths: "{{working_dir}}"
+    patterns: "*.deb"
+  register: deb_files
+  tags: install
+
+- name: Install realtime kernel
   become: true
-  ansible.builtin.command:
-    cmd: dpkg -i *.deb
-    chdir: "{{working_dir}}"
+  ansible.builtin.apt:
+    deb: "{{ item.path }}"
+    state: present
+  loop: "{{ deb_files.files }}"
+  tags: install
 
 - name: Create realtime usergroup 
   become: true
