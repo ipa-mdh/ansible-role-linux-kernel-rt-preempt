@@ -32,3 +32,7 @@ limits_conf_values:
   - "@realtime hard rtprio 99"
   - "@realtime hard priority 99"
   - "@realtime hard memlock 102400"
+
+git_config:
+  user.name: Robot Mindset (autoinstall)
+  user.email: mail@robot-mindset.com

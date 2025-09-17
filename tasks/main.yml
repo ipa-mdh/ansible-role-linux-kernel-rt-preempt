@@ -137,6 +137,16 @@
     chdir: "{{working_dir}}/linux-{{version}}"
   when: git_status.stdout != ""
 
+- name: git set user config
+  ansible.builtin.command:
+    cmd: git config user.name "{{git_config['user.name']}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
+
+- name: git set email config
+  ansible.builtin.command:
+    cmd: git config user.email "{{git_config['user.email']}}"
+    chdir: "{{working_dir}}/linux-{{version}}"
+
 - name: git commit changes if there are any staged files
   ansible.builtin.command:
     cmd: git commit -m "automated initial commit by Ansible"
